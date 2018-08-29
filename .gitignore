@@ -1,0 +1,6 @@
+secrets.h
+build
+firmware
+.vscode
+components
+*.pem
