@@ -1,0 +1,3 @@
+[submodule "kegerator-web"]
+	path = kegerator-web
+	url = git@github.com:lawn-chair/kegerator-web.git
