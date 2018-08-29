@@ -10,6 +10,14 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "espressif/esp_common.h"
+
+#include "libesphttpd/httpd.h"
+#include "libesphttpd/httpdespfs.h"
+#include "libesphttpd/espfs.h"
+#include "libesphttpd/webpages-espfs.h"
+
+
 #include "FreeRTOS.h"
 #include "task.h"
 #include "semphr.h"
@@ -18,17 +26,17 @@
 #include "esp/gpio.h"
 
 #include "espressif/esp_system.h"
-#include "esp_spiffs.h"
-#include "espressif/esp_common.h"
+//#include "esp_spiffs.h"
 
-#include "spiffs.h"
-#include <fcntl.h>
+//#include "spiffs.h"
+//#include <fcntl.h>
 #include <math.h>
 
 #include "secrets.h"
 
 SemaphoreHandle_t temp_mutex;
 uint16_t current_temp = 0;
+uint16_t setpoint = 99;
 
 #define GPIO_NUM_4 4
 
@@ -95,7 +103,7 @@ static void check_temp()
         changed = 0;
         if(xSemaphoreTake(temp_mutex, portMAX_DELAY))
         {
-            if(current_temp > 87)
+            if(current_temp > setpoint)
             {
                 if(state == 0)
                 {
@@ -140,7 +148,34 @@ void setup_sta()
     printf("setup_sta done");
 }
 
+int ICACHE_FLASH_ATTR cgiTempEndpoint(HttpdConnData *conn)
+{
+    if(conn->conn == NULL)
+    {
+        return HTTPD_CGI_DONE;
+    }
 
+    if(conn->requestType == HTTPD_METHOD_POST) {
+
+    }
+
+    httpdStartResponse(conn, 200);
+    httpdHeader(conn, "Content-Type", "application/json");
+    httpdEndHeaders(conn);
+
+    char buf[32];
+    int len = sprintf(buf, "{\"temp\": %d, \"setpoint\": %d}", current_temp, setpoint);
+    httpdSend(conn, buf, len);
+    return HTTPD_CGI_DONE;
+}
+
+// The URLs that the HTTP server can handle.
+HttpdBuiltInUrl builtInUrls[]={
+	{"/", cgiRedirect, "/index.html"},
+	{"/api/temp", cgiTempEndpoint, NULL},
+	{"*", cgiEspFsHook, NULL}, //Catch-all cgi function for the filesystem
+	{NULL, NULL, NULL}
+};
 
 /*****************************************************************************
  * FunctionName : app_main
@@ -163,6 +198,11 @@ void user_init(void)
     setup_sta();
     printf("Free Heap: %d\n", sdk_system_get_free_heap_size());
     */
+    setup_sta();
+
+    espFsInit((void*)(_binary_build_web_espfs_bin_start));
+    httpdInit(builtInUrls, 80);
+
     xTaskCreate(read_temp, "adc", 512, NULL, 10, NULL);
     xTaskCreate(display_temp, "display", 512, NULL, 10, NULL);
     xTaskCreate(check_temp, "check", 512, NULL, 10, NULL);
