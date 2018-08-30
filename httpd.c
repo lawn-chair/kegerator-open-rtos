@@ -61,6 +61,7 @@ int ICACHE_FLASH_ATTR cgiTempEndpoint(HttpdConnData *conn)
                if(xSemaphoreTake(temp_mutex, portMAX_DELAY))
                {
                    setpoint = value;
+                   setpoint_dirty++;
                    xSemaphoreGive(temp_mutex);
                }
             }

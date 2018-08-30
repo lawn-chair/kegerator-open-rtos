@@ -9,6 +9,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <fcntl.h>
 
 #include "espressif/esp_common.h"
 
@@ -25,10 +26,9 @@
 #include "esp/uart.h"
 
 #include "espressif/esp_system.h"
-//#include "esp_spiffs.h"
+#include "esp_spiffs.h"
 
-//#include "spiffs.h"
-//#include <fcntl.h>
+#include "spiffs.h"
 
 #include "secrets.h"
 #include "kegerator.h"
@@ -39,6 +39,7 @@
 SemaphoreHandle_t temp_mutex;
 uint16_t current_temp = 0;
 uint16_t setpoint = MAX_TEMP;
+uint8_t setpoint_dirty = 0;
 
 void setup_sta()
 {
@@ -54,6 +55,50 @@ void setup_sta()
     printf("setup_sta done");
 }
 
+void load_config()
+{
+    char buf[32];
+
+    printf("load_config()\n");
+    FILE *f = fopen("/config.json", "r");
+    if(!f)
+    {
+        f = fopen("/config.json", "w");
+        sprintf(buf, "{\"setpoint\": %d}", MAX_TEMP);
+        fwrite(buf, strlen(buf), 1, f);
+        fclose(f);
+    } else {
+        fread(buf, 1, 32, f);
+        fclose(f);
+    }
+
+    jsmntok_t t[3];
+    jsmn_parser p;
+    jsmn_init(&p);
+    jsmn_parse(&p, buf, strlen(buf), t, sizeof(t)/sizeof(t[0]));
+
+    if(jsoneq(buf, &t[1], "setpoint") == 0)
+    {
+        int32_t value = strntoi(buf + t[2].start, t[2].end - t[2].start);
+        setpoint = value;
+        setpoint_dirty = 0;
+    }
+}
+
+void write_config()
+{
+    char buf[32];
+
+    FILE *f = fopen("/config.json", "w");
+    if(xSemaphoreTake(temp_mutex, portMAX_DELAY))
+    {
+        sprintf(buf, "{\"setpoint\": %d}", setpoint);
+        fwrite(buf, strlen(buf), 1, f);
+        setpoint_dirty = 0;
+        xSemaphoreGive(temp_mutex);
+    }
+    fclose(f);
+}
 
 /*****************************************************************************
  * FunctionName : app_main
@@ -68,14 +113,12 @@ void user_init(void)
     printf("SDK version:%s\n", sdk_system_get_sdk_version());
 
     temp_mutex = xSemaphoreCreateMutex();
-    /*
+
     esp_spiffs_init();
     printf("\nesp_spiffs_mount = %d\n", esp_spiffs_mount());
+
+    load_config();
     
-    printf("Free Heap: %d\n", sdk_system_get_free_heap_size());
-    setup_sta();
-    printf("Free Heap: %d\n", sdk_system_get_free_heap_size());
-    */
     setup_sta();
 
     espFsInit((void*)(_binary_build_web_espfs_bin_start));

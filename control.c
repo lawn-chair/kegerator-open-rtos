@@ -58,6 +58,10 @@ void display_temp()
             printf("Current Temp: %d\n", current_temp);
             xSemaphoreGive(temp_mutex);
         }
+        if(setpoint_dirty)
+        {
+            write_config();
+        }
         vTaskDelay(1000 / portTICK_PERIOD_MS);
     }
 }

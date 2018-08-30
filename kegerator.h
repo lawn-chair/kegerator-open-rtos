@@ -9,5 +9,7 @@
 extern SemaphoreHandle_t temp_mutex;
 extern uint16_t current_temp;
 extern uint16_t setpoint;
+extern uint8_t setpoint_dirty;
 
+void write_config();
 #endif
