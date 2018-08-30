@@ -6,7 +6,7 @@ RTOS_PATH=~/code/esp/esp-open-rtos
 
 PROGRAM := kegerator
 
-EXTRA_COMPONENTS = extras/libesphttpd extras/rboot-ota # extras/spiffs
+EXTRA_COMPONENTS = extras/libesphttpd extras/rboot-ota extras/jsmn # extras/spiffs
 
 LIBESPHTTPD_HTML_DIR = kegerator-web/dist
 

@@ -17,6 +17,7 @@
 #include "libesphttpd/espfs.h"
 #include "libesphttpd/webpages-espfs.h"
 
+#include "jsmn.h"
 
 #include "FreeRTOS.h"
 #include "task.h"
@@ -34,9 +35,12 @@
 
 #include "secrets.h"
 
+#define MIN_TEMP 30
+#define MAX_TEMP 55
+
 SemaphoreHandle_t temp_mutex;
 uint16_t current_temp = 0;
-uint16_t setpoint = 99;
+uint16_t setpoint = MAX_TEMP;
 
 #define GPIO_NUM_4 4
 
@@ -148,6 +152,34 @@ void setup_sta()
     printf("setup_sta done");
 }
 
+static int jsoneq(const char *json, jsmntok_t *tok, const char *s) {
+	if (tok->type == JSMN_STRING && (int) strlen(s) == tok->end - tok->start &&
+			strncmp(json + tok->start, s, tok->end - tok->start) == 0) {
+		return 0;
+	}
+	return -1;
+}
+
+static int strntoi(const char *str, uint32_t len)
+{
+    int32_t ret = 0;
+    int i;
+    for(i = 0; i < len; i++)
+    {
+        if(str[i] == '\0')
+        {
+            return ret;
+        }
+
+        if(str[i] >= '0' && str[i] <= '9')
+        {
+            ret *= 10;
+            ret += str[i] - '0';
+        }
+    }
+    return ret;
+}
+
 int ICACHE_FLASH_ATTR cgiTempEndpoint(HttpdConnData *conn)
 {
     if(conn->conn == NULL)
@@ -156,7 +188,52 @@ int ICACHE_FLASH_ATTR cgiTempEndpoint(HttpdConnData *conn)
     }
 
     if(conn->requestType == HTTPD_METHOD_POST) {
+        jsmntok_t t[5];
+        jsmn_parser p;
+        jsmn_init(&p);
+        int r = jsmn_parse(&p, conn->post->buff, strlen(conn->post->buff), t, sizeof(t)/sizeof(t[0]));
 
+        if(r < 1 || t[0].type != JSMN_OBJECT)
+        {
+            httpdStartResponse(conn, 400);
+            httpdEndHeaders(conn);
+            httpdSend(conn, "{\"error\": \"invalid json\"}", 25);
+            return HTTPD_CGI_DONE;
+        }
+
+        if(jsoneq(conn->post->buff, &t[1], "setpoint") == 0)
+        {
+            int32_t value;
+            if(*(conn->post->buff + t[2].start) == '+' && t[2].end - t[2].start == 1)
+            {
+                value = setpoint + 1;
+            } else if(*(conn->post->buff + t[2].start) == '-' && t[2].end - t[2].start == 1)
+            {
+                value = setpoint - 1;
+            } else {
+                value = strntoi(conn->post->buff + t[2].start, t[2].end - t[2].start);
+            }
+            if(value >= MIN_TEMP && value <= MAX_TEMP)
+            {
+               if(xSemaphoreTake(temp_mutex, portMAX_DELAY))
+               {
+                   setpoint = value;
+                   xSemaphoreGive(temp_mutex);
+               }
+            }
+            else
+            {
+                httpdStartResponse(conn, 400);
+                httpdEndHeaders(conn);
+                httpdSend(conn, "{\"error\": \"invalid setpoint\"}", 30);
+                return HTTPD_CGI_DONE;
+           }
+        } else {
+            httpdStartResponse(conn, 400);
+            httpdEndHeaders(conn);
+            httpdSend(conn, "{\"error\": \"no setpoint\"}", 24);
+            return HTTPD_CGI_DONE;
+        }
     }
 
     httpdStartResponse(conn, 200);
