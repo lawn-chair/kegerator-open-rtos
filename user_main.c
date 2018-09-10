@@ -36,6 +36,7 @@
 #include "httpd.h"
 #include "json.h"
 
+
 SemaphoreHandle_t temp_mutex;
 uint16_t current_temp = 0;
 uint16_t setpoint = MAX_TEMP;
@@ -109,6 +110,7 @@ void write_config()
 //void app_main(void)
 void user_init(void)
 {
+
     uart_set_baud(0, 115200);
     printf("SDK version:%s\n", sdk_system_get_sdk_version());
 

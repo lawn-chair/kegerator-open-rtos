@@ -6,12 +6,19 @@
 #include "semphr.h"
 #include "task.h"
 
-
+#include "espressif/esp_system.h"
 #include "esp/gpio.h"
+#include "esp/spi.h"
 
 #include "kegerator.h"
 
-#define GPIO_NUM_4 4
+#include "ucg.h"
+#include "port.h"
+
+#define GPIO_NUM_4 16 
+#define SPI_BUS 1
+
+volatile static uint8_t running = 0;
 
 void read_temp() 
 {
@@ -51,25 +58,60 @@ void read_temp()
 
 void display_temp()
 {
+    ucg_t ucg;
+    ucg.pin_list[UCG_PIN_CS] = 4;
+    ucg.pin_list[UCG_PIN_CD] = 5;
+
+    spi_init(SPI_BUS, SPI_MODE0, SPI_FREQ_DIV_80M, true, SPI_LITTLE_ENDIAN, true);
+    ucg_Init(&ucg, ucg_dev_ssd1331_18x96x64_univision, ucg_ext_ssd1331_18, ucg_com_cb_esp8266_spi_hw);
+
+    ucg_SetFontMode(&ucg, UCG_FONT_MODE_TRANSPARENT);
+    ucg_SetFontPosTop(&ucg);
+
     while(1)
     {
+        char temp[3];
+        int len;
+
         if(xSemaphoreTake(temp_mutex, portMAX_DELAY))
         {
-            printf("Current Temp: %d\n", current_temp);
+            //printf("Current Temp: %d\n", current_temp);
+            snprintf(temp, 3, "%d", current_temp);
             xSemaphoreGive(temp_mutex);
         }
+
         if(setpoint_dirty)
         {
             write_config();
         }
-        vTaskDelay(1000 / portTICK_PERIOD_MS);
+
+        ucg_ClearScreen(&ucg);
+
+        ucg_SetFont(&ucg, ucg_font_logisoso42_tr);
+        ucg_SetColor(&ucg, 0, 255, 0, 0);
+        len = ucg_DrawString(&ucg, 0, 5, 0, temp);
+
+        snprintf(temp, 3, "%d", setpoint);
+        ucg_SetFont(&ucg, ucg_font_logisoso32_tr);
+        ucg_SetColor(&ucg, 0, 0, 255, 0);
+        ucg_DrawString(&ucg, len + 3, 15, 0, temp);
+
+        ucg_SetFont(&ucg, ucg_font_helvR08_tr);
+        ucg_SetColor(&ucg, 0, 255, 255, 255);
+        if(running)
+        {
+            ucg_DrawString(&ucg, 0, 55, 0, "* Power ON");
+        } else {
+            ucg_DrawString(&ucg, 0, 55, 0, "* Power OFF");
+        }
+
+        vTaskDelay(2000 / portTICK_PERIOD_MS);
     }
 }
 
 void check_temp()
 {
     volatile uint8_t changed = 0;
-    volatile uint8_t state = 0;
 
     gpio_enable(GPIO_NUM_4, GPIO_OUTPUT);
 
@@ -80,27 +122,27 @@ void check_temp()
         {
             if(current_temp > setpoint)
             {
-                if(state == 0)
+                if(running == 0)
                 {
                     changed = 1;
                 }
-                state = 1;
+                running = 1;
             }
             else
             {
-                if(state == 1)
+                if(running == 1)
                 {
                     changed = 1;
                 }
-                state = 0;
+                running = 0;
             }
         }
         xSemaphoreGive(temp_mutex);
 
         if(changed)
         {
-            gpio_write(GPIO_NUM_4, state);
-            vTaskDelay((10*60) * (1000 / portTICK_PERIOD_MS));
+            gpio_write(GPIO_NUM_4, running);
+            vTaskDelay((5/**60*/) * (1000 / portTICK_PERIOD_MS));
         }
         else
         {
